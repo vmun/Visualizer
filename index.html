@@ -1,0 +1,653 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Graphene Sheet Viewer · 41 × 236</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<style>
+  :root{
+    --bg:#0a0d12; --bg2:#0f141b; --panel:#10161f; --line:#1d2630;
+    --ink:#e7edf3; --dim:#8b97a6; --faint:#5a6675;
+    --carbon:#2aa7a0; --carbon2:#bfe3df;
+    --h:#e6edf3; --methyl:#f4a52b; --ethyl:#c061ff;
+    --accent:#5b8def;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden}
+  #app{display:grid;grid-template-columns:1fr 340px;height:100%}
+  @media (max-width:780px){#app{grid-template-columns:1fr;grid-template-rows:1fr auto}}
+  #stage{position:relative;background:radial-gradient(120% 120% at 50% 0%,#121a25 0%,var(--bg) 60%)}
+  #gl{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  #gl:active{cursor:grabbing}
+  #hint{position:absolute;left:14px;bottom:12px;font:11px/1.5 var(--mono);color:var(--faint);pointer-events:none}
+  #hint b{color:var(--dim);font-weight:600}
+  #dims{position:absolute;left:14px;top:12px;font:11px/1.4 var(--mono);color:var(--dim);max-width:60%}
+  #dims b{color:var(--accent)}
+  #drop{position:absolute;inset:0;display:none;place-items:center;background:rgba(10,13,18,.82);border:2px dashed var(--accent);z-index:20}
+  #drop.on{display:grid}
+  #drop span{font:600 15px var(--sans);color:var(--accent)}
+  #prog{position:absolute;left:0;right:0;bottom:0;height:3px;background:transparent;z-index:30}
+  #prog i{display:block;height:100%;width:0;background:var(--accent);transition:width .1s}
+
+  #side{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+  @media (max-width:780px){#side{border-left:0;border-top:1px solid var(--line);max-height:46vh}}
+  .scroll{overflow:auto;padding:18px 18px 26px}
+  .brand{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
+  .brand h1{margin:0;font:600 14px/1.2 var(--sans)}
+  .brand p{margin:3px 0 0;font:11px/1.4 var(--mono);color:var(--faint)}
+  .eyebrow{font:600 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:22px 0 9px}
+  .eyebrow:first-child{margin-top:4px}
+  .file{display:flex;gap:8px}
+  .btn{appearance:none;border:1px solid var(--line);background:var(--bg2);color:var(--ink);font:600 12px var(--sans);padding:9px 12px;border-radius:8px;cursor:pointer;flex:1;transition:border-color .12s}
+  .btn:hover{border-color:var(--accent)}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .btn.ghost{flex:0 0 auto}
+  .btn.mini{flex:0 0 auto;padding:8px 11px;font:600 13px var(--mono)}
+  input[type=number]{width:100%;background:var(--bg2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font:12px var(--mono)}
+  input:focus{outline:2px solid var(--accent);outline-offset:1px;border-color:var(--accent)}
+  label.f{font:11px/1 var(--dim);display:block;margin:0 0 5px 2px}
+  .rowctl{display:flex;gap:8px;align-items:flex-end}
+  .rowctl .grow{flex:1}
+  .rlabel{font:11px/1.4 var(--mono);color:var(--dim);margin:8px 2px 0;min-height:14px}
+  .grid2{display:grid;grid-template-columns:1fr 84px;gap:8px;align-items:end}
+  .pred{display:flex;justify-content:space-between;align-items:baseline;padding:9px 0;border-bottom:1px solid var(--line)}
+  .pred:last-child{border-bottom:0}
+  .pred .k{font:12px var(--sans);color:var(--dim)}
+  .pred .v{font:600 14px var(--mono)}
+  .pred .v small{font:10px var(--mono);color:var(--faint);font-weight:400;margin-left:3px}
+  .note{font:11px/1.5 var(--mono);color:var(--faint);margin:8px 2px 0}
+  /* Model 1 / Model 2 / Average comparison */
+  :root{--c1:#5b8def; --c2:#c061ff; --ca:#f4a52b}
+  table.cmp{width:100%;border-collapse:collapse;font:12px var(--mono)}
+  table.cmp th{font:600 10px var(--mono);letter-spacing:.04em;text-transform:uppercase;
+    color:var(--faint);text-align:right;padding:0 0 7px;border-bottom:1px solid var(--line)}
+  table.cmp th:first-child{text-align:left}
+  table.cmp th.c1{color:var(--c1)} table.cmp th.c2{color:var(--c2)} table.cmp th.ca{color:var(--ca)}
+  table.cmp td{text-align:right;padding:8px 0;border-bottom:1px solid var(--line);color:var(--ink)}
+  table.cmp tr:last-child td{border-bottom:0}
+  table.cmp td.pn{text-align:left;color:var(--dim);font-family:var(--sans);font-size:12px;line-height:1.2}
+  table.cmp td.pn .u{display:block;font:10px var(--mono);color:var(--faint)}
+  table.cmp td.c1{color:var(--c1)} table.cmp td.c2{color:var(--c2)}
+  table.cmp td.ca{color:var(--ca);font-weight:600}
+  .legend2{margin-top:11px;display:flex;flex-direction:column;gap:5px;font:11px/1.3 var(--mono);color:var(--dim)}
+  .legend2 span{display:flex;align-items:center;gap:7px}
+  .legend2 i{width:9px;height:9px;border-radius:2px;flex:0 0 auto}
+  .legend2 i.c1{background:var(--c1)} .legend2 i.c2{background:var(--c2)} .legend2 i.ca{background:var(--ca)}
+  .legend2 .warn{color:var(--methyl)}
+  /* sort & extremes */
+  .grid2b{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+  #extremes{display:flex;flex-direction:column;gap:7px}
+  .ex{display:flex;align-items:center;gap:8px;justify-content:space-between;
+    background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+  .ex .lab{font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .ex .lab.hi{color:var(--ca)} .ex .lab.lo{color:var(--accent)}
+  .ex .val{font:600 13px var(--mono);color:var(--ink);margin-left:auto}
+  .ex .who{font:11px var(--mono);color:var(--dim);max-width:96px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ex button{appearance:none;border:1px solid var(--line);background:transparent;color:var(--accent);
+    font:600 11px var(--mono);padding:4px 8px;border-radius:6px;cursor:pointer}
+  .ex button:hover{border-color:var(--accent)}
+  .browse{display:flex;align-items:center;gap:6px;margin-top:11px;flex-wrap:wrap}
+  .browse .bl{font:11px var(--mono);color:var(--faint);margin-right:2px}
+  .btn.active{border-color:var(--accent);background:#16202e;color:var(--accent)}
+  .rankline{font:11px/1.4 var(--mono);color:var(--accent);margin-top:9px;min-height:14px}
+  .key{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;cursor:pointer;user-select:none}
+  .key:hover{background:var(--bg2)}
+  .key input{accent-color:var(--accent);width:15px;height:15px}
+  .dot{width:13px;height:13px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 0 1px rgba(255,255,255,.08)}
+  .key .nm{font:12px var(--sans);flex:1}
+  .key .ct{font:600 12px var(--mono);color:var(--dim)}
+  .bar{height:7px;border-radius:4px;background:var(--bg2);overflow:hidden;margin:4px 0 12px;display:flex}
+  .bar i{display:block;height:100%}
+  .statline{display:flex;justify-content:space-between;font:12px var(--mono);color:var(--dim);margin-top:10px}
+  .statline b{color:var(--ink)}
+  .empty{color:var(--faint);font:12px var(--mono);padding:6px 2px}
+</style>
+
+<div id="app">
+  <div id="stage">
+    <canvas id="gl"></canvas>
+    <div id="dims">no sheet loaded</div>
+    <div id="hint"><b>drag</b> rotate · <b>scroll</b> zoom · <b>right-drag</b> pan · <b>R</b> reset</div>
+    <div id="drop"><span>Drop a CSV to load</span></div>
+    <div id="prog"><i></i></div>
+  </div>
+
+  <aside id="side">
+    <div class="brand">
+      <h1>Graphene Sheet Viewer</h1>
+      <p>41 × 236 honeycomb · functional-group decode</p>
+    </div>
+    <div class="scroll">
+      <div class="eyebrow">Data</div>
+      <div class="file">
+        <button class="btn" id="open">Load CSV…</button>
+        <button class="btn ghost" id="sample">Demo</button>
+      </div>
+      <input type="file" id="picker" accept=".csv,text/csv" hidden>
+
+      <div class="rowctl" style="margin-top:12px">
+        <div class="grow">
+          <label class="f">Row index</label>
+          <input type="number" id="rowidx" value="0" min="0" step="1" disabled>
+        </div>
+        <button class="btn mini" id="prev" disabled>‹</button>
+        <button class="btn mini" id="next" disabled>›</button>
+      </div>
+      <div class="rlabel" id="rlabel">—</div>
+      <div class="rankline" id="rankline"></div>
+
+
+      <div class="eyebrow">Predictions</div>
+      <div id="preds"><div class="empty">Load a sheet to read its property values.</div></div>
+
+      <div class="eyebrow" id="sorthead" style="display:none">Sort &amp; extremes</div>
+      <div id="sortcard" style="display:none">
+        <div class="grid2b">
+          <select id="sortProp"></select>
+          <select id="sortModel"></select>
+        </div>
+        <div id="extremes"></div>
+        <div class="browse">
+          <span class="bl">Browse:</span>
+          <button class="btn mini" id="bHigh" title="step from highest to lowest">Highest ↓</button>
+          <button class="btn mini" id="bLow"  title="step from lowest to highest">Lowest ↑</button>
+          <button class="btn mini" id="bFile" title="back to file order">File</button>
+        </div>
+      </div>
+
+      <div class="eyebrow">Functional groups</div>
+      <div id="legend"></div>
+
+      <div class="eyebrow">Structure</div>
+      <div id="struct"><div class="empty">—</div></div>
+    </div>
+  </aside>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ===========================================================================
+   DECODE RULES — identical to dataset_prep.py
+   0,1 backbone · 2 H top · 3 H bot · 4 CH3 top · 5 CH3 bot · 6 ethyl top · 7 ethyl bot
+   =========================================================================== */
+const ROWS=41, COLS=236, NCELL=ROWS*COLS;
+const GROUP={0:['none',0],1:['none',0],2:['H',1],3:['H',-1],4:['CH3',1],5:['CH3',-1],6:['CH2CH3',1],7:['CH2CH3',-1]};
+const GTYPES=['H','CH3','CH2CH3'];
+const GCOLOR={H:0xe6edf3,CH3:0xf4a52b,CH2CH3:0xc061ff};
+const GLABEL={H:'Hydrogen',CH3:'Methyl  CH\u2083',CH2CH3:'Ethyl  CH\u2082CH\u2083'};
+/* Each property: column suffix shared by Model-1 (pred_<suffix>) and
+   Model-2 (m2_<suffix>), a display name, unit, and human aliases for plain
+   single-value label columns (e.g. the demo CSV). */
+const PROPS=[
+  {suf:'ThermalConductivity',   name:'Thermal conductivity',   unit:'W/m\u00b7K', aliases:['thermal conductivity','kappa']},
+  {suf:'YoungsModulus',         name:"Young's modulus",        unit:'MPa',        aliases:["young's modulus","youngs modulus","young modulus"]},
+  {suf:'MaximumStress',         name:'Maximum stress',         unit:'MPa',        aliases:['maximum stress','max stress']},
+  {suf:'StrainAtMaximumStress', name:'Strain at max stress',   unit:'',           aliases:['strain at maximum stress','max strain']},
+  {suf:'StrainAtFracture',      name:'Strain at fracture',     unit:'',           aliases:['strain at fracture']},
+];
+const M1_PREFIXES=['pred_'];
+const M2_PREFIXES=['m2_','transformer_','model2_'];
+
+/* ---- honeycomb coordinates (verified against the reference lattice) ------- */
+const L=1.0, HH=Math.sqrt(3)/2*L, PITCH=2*HH, KX=[0,0.5,1.5,2.0];
+const hx=c=>3*L*Math.floor(c/4)+KX[c%4]*L;
+const hy=(r,c)=>((c%4===0||c%4===3)?HH:0)+r*PITCH;
+const XMAX=hx(COLS-1), YMAX=hy(ROWS-1,COLS-1)+HH, CX=XMAX/2, CY=YMAX/2;
+
+/* ---- one quoted/plain CSV line -> fields ---------------------------------- */
+function splitLine(line){
+  if(line.indexOf('"')<0) return line.split(',');
+  const out=[];let f='',q=false;
+  for(let i=0;i<line.length;i++){const c=line[i];
+    if(q){if(c==='"'){if(line[i+1]==='"'){f+='"';i++;}else q=false;}else f+=c;}
+    else if(c==='"')q=true;else if(c===','){out.push(f);f='';}else f+=c;}
+  out.push(f);return out;
+}
+
+/* ===========================================================================
+   DATA SOURCE — works for in-memory (demo/small) and streamed (huge) files
+   =========================================================================== */
+let header=[], gridStart=14, rowCount=0;
+let memRows=null;                 // string[][] for small files / demo
+let bigFile=null, lineOffsets=null;   // for streamed files
+let labels=[];                    // first-column label per row (for jump targets)
+
+/* sort/extremes data layer (values for pred_*, m2_*, and their average) */
+let series={};                    // id -> Float64Array, ids like "m1:ThermalConductivity"
+let seriesList=[];                // [{id,label,prop,model}]  for the picker
+let minmax={};                    // id -> {min,max,minRow,maxRow,n}
+let order=null, rankOf=null;      // current browse order (Int32Array) + inverse, null = file order
+let sortId=null, sortDir='desc';  // active sort series + direction
+
+function autoDetect(vals){
+  const inr=v=>{const n=Number(v);return Number.isFinite(n)&&n>=0&&n<=7&&Number.isInteger(n);};
+  let bestEnd=-1,best=0,run=0;
+  for(let i=0;i<vals.length;i++){if(inr(vals[i])){run++;if(run>=best){best=run;bestEnd=i;}}else run=0;}
+  return best>=NCELL?bestEnd-NCELL+1:14;
+}
+async function getRowFields(i){
+  if(memRows) return memRows[i];
+  const start=lineOffsets[i+1], end=(i+2<lineOffsets.length?lineOffsets[i+2]:bigFile.size);
+  const buf=await bigFile.slice(start,end).arrayBuffer();
+  let txt=new TextDecoder().decode(new Uint8Array(buf)).replace(/[\r\n]+$/,'');
+  return splitLine(txt);
+}
+
+/* small / demo path: parse whole text */
+function loadText(text){
+  bigFile=null; lineOffsets=null;
+  text=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n');
+  const lines=text.split('\n').filter(l=>l.length);
+  header=splitLine(lines[0]);
+  memRows=lines.slice(1).map(splitLine);
+  rowCount=memRows.length;
+  labels=memRows.map(r=>String(r[0]??''));
+  buildSeriesMem();
+  afterIndex();
+}
+
+/* huge path: read header deterministically, then index newline byte offsets.
+   The streaming pass stores only integer offsets — never views into chunk
+   buffers — so a header that spans chunk boundaries can't get corrupted. */
+async function loadFile(file){
+  memRows=null; bigFile=file; lineOffsets=[0]; labels=[];
+  setProg(0.001);
+  header=await readHeader(file);                 // <- robust, chunk-independent
+  const plan=resolveSortPlan();                  // which columns to capture, and how far from line end
+  const cap=plan.cols.length ? newSeriesCapture(plan) : null;
+  const ext=cap ? makeTailExtractor(plan.tailBytes, cap.onLine) : null;
+  let pos=0, nl, from;
+  const reader=file.stream().getReader();
+  while(true){
+    const {done,value}=await reader.read(); if(done)break;
+    from=0;
+    while((nl=value.indexOf(10,from))>=0){ lineOffsets.push(pos+nl+1); from=nl+1; }
+    if(ext) ext.push(value);
+    pos+=value.length; setProg(pos/file.size);
+  }
+  if(ext) ext.end();
+  rowCount=lineOffsets.length-1;
+  if(lineOffsets[rowCount]>=file.size) rowCount--;   // last offset points past EOF
+  if(cap) cap.finalize(plan, rowCount);
+  setProg(0);
+  afterIndex();
+}
+async function readHeader(file){
+  let size=1<<20;                                // 1 MB, grow if the header is wider
+  while(true){
+    const txt=await file.slice(0,Math.min(size,file.size)).text();
+    const nl=txt.indexOf('\n');
+    if(nl>=0) return splitLine(txt.slice(0,nl).replace(/\r$/,''));
+    if(size>=file.size) return splitLine(txt.replace(/\r$/,''));   // whole file, no newline
+    size*=4;                                     // header longer than `size`: read more
+  }
+}
+
+/* ---- sort/extremes: resolve target columns, capture values, min/max, order ---- */
+function resolveSortPlan(){
+  const idxOf={}; header.forEach((h,i)=>idxOf[String(h).trim().toLowerCase()]=i);
+  const cols=[]; const props=[];                 // cols: {prop,model,colIdx}
+  for(const P of PROPS){
+    const find=pre=>{for(const p of pre){const i=idxOf[(p+P.suf).toLowerCase()];if(i!==undefined)return i;}return -1;};
+    const m1=find(M1_PREFIXES), m2=find(M2_PREFIXES);
+    let lab=-1; for(const a of P.aliases){if(idxOf[a]!==undefined){lab=idxOf[a];break;}}
+    const has={};
+    if(m1>=0){cols.push({prop:P,model:'m1',colIdx:m1}); has.m1=true;}
+    if(m2>=0){cols.push({prop:P,model:'m2',colIdx:m2}); has.m2=true;}
+    if(m1<0&&m2<0&&lab>=0){cols.push({prop:P,model:'val',colIdx:lab}); has.val=true;}
+    if(m1>=0||m2>=0||lab>=0) props.push({P,has});
+  }
+  const maxFromEnd=cols.reduce((m,c)=>Math.max(m,header.length-c.colIdx),0);
+  const tailBytes=Math.min(Math.max(maxFromEnd*40+64,512),1<<16);
+  return {cols,props,tailBytes,headerLen:header.length};
+}
+function makeTailExtractor(T,onLine){
+  let carry=new Uint8Array(0), lineNo=0;
+  const tail=(a,b)=>{const t=a.length+b.length;if(t<=T){const o=new Uint8Array(t);o.set(a,0);o.set(b,a.length);return o;}
+    const o=new Uint8Array(T); if(b.length>=T)o.set(b.subarray(b.length-T)); else{const fa=T-b.length;o.set(a.subarray(a.length-fa),0);o.set(b,fa);} return o;};
+  const tof=s=>s.length<=T?s.slice():s.subarray(s.length-T).slice();
+  return {
+    push(v){let from=0,nl,first=true;
+      while((nl=v.indexOf(10,from))>=0){const seg=v.subarray(from,nl);onLine(lineNo++,first?tail(carry,seg):tof(seg));carry=new Uint8Array(0);first=false;from=nl+1;}
+      const rem=v.subarray(from); carry=first?tail(carry,rem):tof(rem);},
+    end(){ if(carry.length) onLine(lineNo++,carry); }
+  };
+}
+function newSeriesCapture(plan){
+  const dec=new TextDecoder(); const buf={}; plan.cols.forEach(c=>buf[c.model+':'+c.prop.suf]=[]);
+  return {
+    onLine(lineNo,tb){ if(lineNo===0)return;            // skip header line
+      const parts=dec.decode(tb).split(',');
+      for(const c of plan.cols){const i=parts.length-(plan.headerLen-c.colIdx);
+        buf[c.model+':'+c.prop.suf].push(i>0?parseFloat(parts[i]):NaN);}
+    },
+    finalize(plan,n){ ingestSeries(plan, id=>Float64Array.from(buf[id]||[]), n); }
+  };
+}
+/* build series for the in-memory (small/demo) path */
+function buildSeriesMem(){
+  const plan=resolveSortPlan();
+  ingestSeries(plan, (id)=>{
+    const c=plan.cols.find(c=>c.model+':'+c.prop.suf===id);
+    const a=new Float64Array(rowCount);
+    for(let r=0;r<rowCount;r++){const v=parseFloat(memRows[r][c.colIdx]); a[r]=Number.isFinite(v)?v:NaN;}
+    return a;
+  }, rowCount);
+}
+/* common: store per-model series, derive averages, compute min/max, fill picker */
+function ingestSeries(plan, getArr, n){
+  series={}; seriesList=[]; minmax={}; order=null; rankOf=null; sortId=null; orderCache={};
+  for(const c of plan.cols){const id=c.model+':'+c.prop.suf; series[id]=getArr(id);}
+  for(const {P,has} of plan.props){
+    const add=(model,label,arr)=>{const id=model+':'+P.suf; series[id]=arr; minmax[id]=computeMinMax(arr);
+      seriesList.push({id,prop:P,model,label});};
+    if(has.m1) add('m1','Model 1',series['m1:'+P.suf]);
+    if(has.m2) add('m2','Model 2',series['m2:'+P.suf]);
+    if(has.m1&&has.m2){const a=series['m1:'+P.suf],b=series['m2:'+P.suf],avg=new Float64Array(n);
+      for(let r=0;r<n;r++){const x=a[r],y=b[r],fx=Number.isFinite(x),fy=Number.isFinite(y);
+        avg[r]=fx&&fy?(x+y)/2:fx?x:fy?y:NaN;} add('avg','Average',avg);}
+    if(has.val) add('val','Value',series['val:'+P.suf]);
+  }
+}
+function computeMinMax(a){let mn=Infinity,mx=-Infinity,mnR=-1,mxR=-1,n=0;
+  for(let r=0;r<a.length;r++){const v=a[r];if(Number.isFinite(v)){n++;if(v<mn){mn=v;mnR=r;}if(v>mx){mx=v;mxR=r;}}}
+  return n?{min:mn,max:mx,minRow:mnR,maxRow:mxR,n}:{min:NaN,max:NaN,minRow:-1,maxRow:-1,n:0};}
+let orderCache={};                // "id:dir" -> {order,rankOf}
+function computeOrder(id,dir){
+  const key=id+':'+dir, c=orderCache[key];
+  if(c){order=c.order;rankOf=c.rankOf;sortId=id;sortDir=dir;return;}
+  const a=series[id]; const idx=Array.from({length:rowCount},(_,i)=>i);
+  idx.sort((x,y)=>{const vx=a[x],vy=a[y],nx=Number.isFinite(vx),ny=Number.isFinite(vy);
+    if(!nx&&!ny)return x-y; if(!nx)return 1; if(!ny)return -1; return dir==='desc'?(vy-vx):(vx-vy);});
+  order=Int32Array.from(idx); rankOf=new Int32Array(rowCount);
+  for(let p=0;p<order.length;p++) rankOf[order[p]]=p;
+  orderCache[key]={order,rankOf}; sortId=id; sortDir=dir;
+}
+function clearOrder(){order=null;rankOf=null;sortId=null;}
+function seriesLabel(row){ return labels[row]!==undefined?labels[row]:('row '+row); }
+
+async function afterIndex(){
+  ['rowidx','prev','next'].forEach(id=>$(id).disabled=false);
+  $('rowidx').max=Math.max(0,rowCount-1); $('rowidx').value=0;
+  clearOrder();
+  const f0=await getRowFields(0);
+  gridStart=autoDetect(f0.map(Number));      // silent auto-detect (no UI)
+  populateSortUI();
+  render();
+}
+function goRow(r){ $('rowidx').value=Math.max(0,Math.min(rowCount-1,r|0)); render(); }
+function stepRow(d){
+  const cur=parseInt($('rowidx').value,10)||0;
+  if(order){ const p=Math.max(0,Math.min(rowCount-1,(rankOf[cur]??0)+d)); goRow(order[p]); }
+  else goRow(cur+d);
+}
+
+/* ---- decode one row to honeycomb grid + tallies -------------------------- */
+function decode(fields,start){
+  const slice=new Array(NCELL);
+  for(let i=0;i<NCELL;i++){const n=parseInt(fields[start+i],10);slice[i]=Number.isFinite(n)?n:1;}
+  const grid=new Int8Array(NCELL);
+  const counts={H:0,CH3:0,CH2CH3:0}, plane={top:0,bot:0};
+  for(let i=0;i<NCELL;i++){const v=slice[i];grid[i]=v;
+    const g=GROUP[v]; if(g&&g[0]!=='none'){counts[g[0]]++; g[1]>0?plane.top++:plane.bot++;}}
+  return {grid,counts,plane,substituted:counts.H+counts.CH3+counts.CH2CH3};
+}
+function readProps(fields){
+  // build a lowercase header -> index map
+  const idxOf={}; header.forEach((h,i)=>{idxOf[String(h).trim().toLowerCase()]=i;});
+  const num=i=>{const v=Number(fields[i]);return Number.isFinite(v)&&fields[i]!==''?v:null;};
+  const findVal=(prefixes,suf)=>{
+    for(const p of prefixes){const i=idxOf[(p+suf).toLowerCase()];if(i!==undefined)return num(i);}
+    return null;
+  };
+  const rows=[]; let anyModel=false;
+  for(const P of PROPS){
+    const m1=findVal(M1_PREFIXES,P.suf);
+    const m2=findVal(M2_PREFIXES,P.suf);
+    let label=null;                                   // plain single-value column
+    for(const a of P.aliases){if(idxOf[a]!==undefined){label=num(idxOf[a]);break;}}
+    if(m1!==null||m2!==null)anyModel=true;
+    if(m1!==null||m2!==null||label!==null)
+      rows.push({name:P.name,unit:P.unit,m1,m2,label});
+  }
+  return {rows,anyModel};
+}
+
+/* ===========================================================================
+   THREE.JS SCENE
+   =========================================================================== */
+const canvas=document.getElementById('gl');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(42,1,0.1,8000);
+scene.add(new THREE.AmbientLight(0xffffff,0.6));
+const key=new THREE.DirectionalLight(0xffffff,0.85);key.position.set(60,120,140);scene.add(key);
+const rim=new THREE.DirectionalLight(0x88aaff,0.35);rim.position.set(-80,-40,-90);scene.add(rim);
+const SPHERE=new THREE.SphereGeometry(1,14,10);
+const Z={H:0.9,CH3:1.15,CH2CH3:1.15}, ZETHYL2=2.15;
+
+let sheetGroup=null;
+const visible={backbone:true,H:true,CH3:true,CH2CH3:true,top:true,bottom:true};
+const meshes={};
+function clearSheet(){ if(sheetGroup){scene.remove(sheetGroup);
+  sheetGroup.traverse(o=>{if(o.geometry&&o.geometry!==SPHERE)o.geometry.dispose&&o.geometry.dispose();
+    if(o.material)o.material.dispose&&o.material.dispose();});} sheetGroup=null; }
+const px=c=>hx(c)-CX, py=(r,c)=>hy(r,c)-CY;
+
+function buildSheet(dec){
+  clearSheet(); const g=new THREE.Group(); sheetGroup=g;
+  const m=new THREE.Matrix4(),q=new THREE.Quaternion(),s=new THREE.Vector3();
+
+  // backbone carbons
+  const back=new THREE.InstancedMesh(SPHERE,new THREE.MeshStandardMaterial({color:0x2aa7a0,roughness:.5,metalness:.05}),NCELL);
+  s.set(0.30,0.30,0.30); let bi=0;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){m.compose(new THREE.Vector3(px(c),py(r,c),0),q,s);back.setMatrixAt(bi++,m);}
+  back.instanceMatrix.needsUpdate=true; g.add(back); meshes.backbone=back;
+
+  // backbone bonds by lattice rule: intra-row chain + inter-row slants
+  const lp=[];
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS-1;c++) lp.push(px(c),py(r,c),0,px(c+1),py(r,c+1),0);
+  for(let r=0;r<ROWS-1;r++)for(let c=0;c<COLS;c++){
+    if(c%4===0&&c+1<COLS) lp.push(px(c),py(r,c),0,px(c+1),py(r+1,c+1),0);
+    if(c%4===3&&c-1>=0)   lp.push(px(c),py(r,c),0,px(c-1),py(r+1,c-1),0);
+  }
+  const bg=new THREE.BufferGeometry();bg.setAttribute('position',new THREE.Float32BufferAttribute(lp,3));
+  const bonds=new THREE.LineSegments(bg,new THREE.LineBasicMaterial({color:0x4f6f7a,transparent:true,opacity:.75}));
+  g.add(bonds); meshes.bonds=bonds;
+
+  // functional groups
+  const sites={H:[],CH3:[],CH2CH3:[]};
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){const v=dec.grid[r*COLS+c];const gp=GROUP[v];
+    if(gp&&gp[0]!=='none')sites[gp[0]].push([px(c),py(r,c),gp[1]]);}
+  meshes.groups={};
+  for(const gt of GTYPES){const list=sites[gt]; if(!list.length)continue;
+    const n=gt==='CH2CH3'?2:1, rad=gt==='H'?0.20:0.28;
+    const im=new THREE.InstancedMesh(SPHERE,new THREE.MeshStandardMaterial({color:GCOLOR[gt],roughness:.4,metalness:.1}),list.length*n);
+    const ll=[]; let ii=0; const ss=new THREE.Vector3(rad,rad,rad); const planes=[];
+    list.forEach(([x,y,pl])=>{const z1=pl*Z[gt];
+      m.compose(new THREE.Vector3(x,y,z1),q,ss);im.setMatrixAt(ii++,m);planes.push(pl);ll.push(x,y,0,x,y,z1);
+      if(gt==='CH2CH3'){const z2=pl*ZETHYL2;m.compose(new THREE.Vector3(x,y,z2),q,ss);im.setMatrixAt(ii++,m);planes.push(pl);ll.push(x,y,z1,x,y,z2);}});
+    im.instanceMatrix.needsUpdate=true; im.userData={planes,rad};
+    const lg=new THREE.BufferGeometry();lg.setAttribute('position',new THREE.Float32BufferAttribute(ll,3));
+    const lines=new THREE.LineSegments(lg,new THREE.LineBasicMaterial({color:GCOLOR[gt],transparent:true,opacity:.6}));
+    g.add(im);g.add(lines); meshes.groups[gt]={mesh:im,lines};
+  }
+  scene.add(g); applyVisibility(); frameCamera();
+}
+function applyVisibility(){
+  if(!meshes.backbone)return;
+  meshes.backbone.visible=visible.backbone; meshes.bonds.visible=visible.backbone;
+  for(const gt of GTYPES){const e=meshes.groups[gt];if(!e)continue;
+    e.mesh.visible=visible[gt];e.lines.visible=visible[gt];
+    const im=e.mesh,planes=im.userData.planes,rad=im.userData.rad;
+    const m=new THREE.Matrix4(),p=new THREE.Vector3(),qn=new THREE.Quaternion(),sc=new THREE.Vector3();
+    for(let i=0;i<planes.length;i++){im.getMatrixAt(i,m);m.decompose(p,qn,sc);
+      const on=planes[i]>0?visible.top:visible.bottom; const t=on?rad:0.0001;
+      sc.set(t,t,t);m.compose(p,qn,sc);im.setMatrixAt(i,m);}
+    im.instanceMatrix.needsUpdate=true;
+  }
+}
+/* camera + manual orbit */
+const target=new THREE.Vector3(0,0,0);
+let radius=200,theta=-Math.PI/2,phi=0.78;
+function frameCamera(){radius=Math.max(XMAX,YMAX)*0.72+10;theta=-Math.PI/2;phi=0.66;target.set(0,0,0);updateCam();}
+function updateCam(){phi=Math.max(0.05,Math.min(Math.PI-0.05,phi));
+  camera.position.set(target.x+radius*Math.sin(phi)*Math.cos(theta),target.y+radius*Math.cos(phi),target.z+radius*Math.sin(phi)*Math.sin(theta));
+  camera.up.set(0,0,1);camera.lookAt(target);}
+let drag=null,lx=0,ly=0;
+canvas.addEventListener('pointerdown',e=>{drag=(e.button===2||e.shiftKey)?'pan':'rot';lx=e.clientX;ly=e.clientY;canvas.setPointerCapture(e.pointerId);});
+canvas.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;
+  if(drag==='rot'){theta-=dx*0.006;phi-=dy*0.006;}
+  else{const k=radius*0.0016;const right=new THREE.Vector3().crossVectors(new THREE.Vector3().subVectors(camera.position,target),camera.up).normalize();
+    target.addScaledVector(right,-dx*k);target.addScaledVector(camera.up.clone(),dy*k);}updateCam();});
+canvas.addEventListener('pointerup',()=>drag=null);
+canvas.addEventListener('contextmenu',e=>e.preventDefault());
+canvas.addEventListener('wheel',e=>{e.preventDefault();radius*=(1+Math.sign(e.deltaY)*0.08);radius=Math.max(6,Math.min(4000,radius));updateCam();},{passive:false});
+let pinch=0;
+canvas.addEventListener('touchmove',e=>{if(e.touches.length===2){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
+  if(pinch)radius*=pinch/d;pinch=d;radius=Math.max(6,Math.min(4000,radius));updateCam();e.preventDefault();}},{passive:false});
+canvas.addEventListener('touchend',()=>pinch=0);
+addEventListener('keydown',e=>{if(e.key==='r'||e.key==='R')frameCamera();});
+function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;
+  if(canvas.width!==w*devicePixelRatio||canvas.height!==h*devicePixelRatio){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}}
+(function loop(){resize();renderer.render(scene,camera);requestAnimationFrame(loop);})();
+
+/* ===========================================================================
+   UI
+   =========================================================================== */
+const $=id=>document.getElementById(id);
+const setProg=f=>{$('prog').firstElementChild.style.width=(f>0?f*100:0)+'%';};
+
+async function render(){
+  if(rowCount<=0)return;
+  const i=Math.max(0,Math.min(rowCount-1,parseInt($('rowidx').value,10)||0));
+  const fields=await getRowFields(i);          // gridStart is auto-detected at load
+  const dec=decode(fields,gridStart);
+  buildSheet(dec);
+  const label=String(fields[0]??'').slice(0,40);
+  $('rlabel').textContent=`row ${i} of ${rowCount}  ·  ${label||'(no label)'}`;
+  renderRank(i);
+  $('dims').innerHTML=`<b>41 × 236</b> honeycomb &nbsp;·&nbsp; ${dec.substituted} substituents`;
+  renderPreds(readProps(fields)); renderStruct(dec); renderLegend(dec);
+}
+function renderRank(i){
+  const el=$('rankline'); if(!el) return;
+  if(order&&sortId){ const s=seriesList.find(s=>s.id===sortId);
+    const rank=(rankOf[i]??0)+1; const v=series[sortId][i];
+    el.innerHTML=`<b>#${rank.toLocaleString()}</b> of ${rowCount.toLocaleString()} \u00b7 `+
+      `${s?s.prop.name:''} ${s?modelName(s.model):''} ${sortDir==='desc'?'\u2193':'\u2191'} \u00b7 `+
+      `value ${fmt(v)} \u00b7 row ${i}`;
+  } else el.innerHTML=seriesList.length?'File order \u00b7 stepping by row id':'';
+}
+function modelName(m){return m==='m1'?'Model 1':m==='m2'?'Model 2':m==='avg'?'Average':'Value';}
+
+function modelsForProp(suf){return seriesList.filter(s=>s.prop.suf===suf).map(s=>s.model);}
+function currentSortId(){const suf=$('sortProp').value, m=$('sortModel').value; return m+':'+suf;}
+function setBrowseActive(id){['bHigh','bLow','bFile'].forEach(b=>$(b).classList.toggle('active',b===id));}
+function resetToFile(){clearOrder();setBrowseActive('bFile');renderRank(parseInt($('rowidx').value,10)||0);}
+function populateSortUI(){
+  const show=seriesList.length>0;
+  $('sorthead').style.display=$('sortcard').style.display=show?'':'none';
+  if(!show) return;
+  const props=[...new Set(seriesList.map(s=>s.prop.suf))];
+  $('sortProp').innerHTML=props.map(suf=>{const p=PROPS.find(P=>P.suf===suf);
+    return `<option value="${suf}">${p.name}</option>`;}).join('');
+  fillModels(); renderExtremes(); setBrowseActive('bFile');
+}
+function fillModels(){
+  const ms=modelsForProp($('sortProp').value);
+  $('sortModel').innerHTML=ms.map(m=>`<option value="${m}">${modelName(m)}</option>`).join('');
+}
+function renderExtremes(){
+  const id=currentSortId(), mm=minmax[id], el=$('extremes');
+  if(!mm||!mm.n){el.innerHTML='<div class="empty">no numeric values</div>';return;}
+  const unit=(PROPS.find(P=>P.suf===$('sortProp').value)||{}).unit||'';
+  const who=r=>labels[r]?labels[r].slice(0,16):('row '+r);
+  el.innerHTML=`
+    <div class="ex"><span class="lab hi">Highest</span><span class="who">${who(mm.maxRow)}</span>
+      <span class="val">${fmt(mm.max)}${unit?' '+unit:''}</span><button data-r="${mm.maxRow}">Jump</button></div>
+    <div class="ex"><span class="lab lo">Lowest</span><span class="who">${who(mm.minRow)}</span>
+      <span class="val">${fmt(mm.min)}${unit?' '+unit:''}</span><button data-r="${mm.minRow}">Jump</button></div>`;
+  el.querySelectorAll('button').forEach(b=>b.onclick=()=>goRow(+b.dataset.r));
+}
+function fmt(v){if(v===null||v===undefined||Number.isNaN(v))return '\u2013';
+  return Math.abs(v)>=100?v.toFixed(1):(''+(+v.toFixed(4)));}
+function renderPreds(P){const el=$('preds');
+  if(!P.rows.length){el.innerHTML='<div class="empty">No property / prediction columns found.</div>';return;}
+  if(!P.anyModel){            // plain single-value labels (e.g. demo CSV)
+    el.innerHTML=P.rows.map(r=>`<div class="pred"><span class="k">${r.name}</span>
+      <span class="v">${fmt(r.label)}${r.unit?` <small>${r.unit}</small>`:''}</span></div>`).join('')
+      +`<div class="note">Single values from the file. Run predict_transformer.py to add Model-2 (m2_*) columns for a comparison.</div>`;
+    return;
+  }
+  const hasM2=P.rows.some(r=>r.m2!==null);
+  let h=`<table class="cmp"><thead><tr><th>Property</th>
+      <th class="c1">Model 1</th>${hasM2?'<th class="c2">Model 2</th><th class="ca">Avg</th>':''}</tr></thead><tbody>`;
+  for(const r of P.rows){
+    const avg=(r.m1!==null&&r.m2!==null)?(r.m1+r.m2)/2:null;
+    h+=`<tr><td class="pn">${r.name}${r.unit?`<span class="u">${r.unit}</span>`:''}</td>
+        <td class="c1">${fmt(r.m1)}</td>`;
+    if(hasM2) h+=`<td class="c2">${fmt(r.m2)}</td><td class="ca">${fmt(avg)}</td>`;
+    h+=`</tr>`;
+  }
+  h+=`</tbody></table><div class="legend2">
+        <span><i class="c1"></i>Model 1 \u00b7 original (pred_*)</span>
+        ${hasM2?'<span><i class="c2"></i>Model 2 \u00b7 transformer (m2_*)</span><span><i class="ca"></i>Average of the two</span>'
+                :'<span class="warn">No Model-2 columns yet \u2014 run predict_transformer.py</span>'}
+      </div>`;
+  el.innerHTML=h;
+}
+function renderLegend(dec){const el=$('legend');
+  const plane=(id,nm)=>`<label class="key"><input type="checkbox" data-v="${id}" ${visible[id]?'checked':''}><span class="dot" style="background:#39506e"></span><span class="nm">${nm}</span></label>`;
+  el.innerHTML=GTYPES.map(gt=>`<label class="key"><input type="checkbox" data-v="${gt}" ${visible[gt]?'checked':''}><span class="dot" style="background:#${GCOLOR[gt].toString(16).padStart(6,'0')}"></span><span class="nm">${GLABEL[gt]}</span><span class="ct">${dec.counts[gt]}</span></label>`).join('')
+    +`<label class="key"><input type="checkbox" data-v="backbone" ${visible.backbone?'checked':''}><span class="dot" style="background:#2aa7a0"></span><span class="nm">Backbone C</span><span class="ct">${NCELL}</span></label>`
+    +plane('top','Top plane (+Z)')+plane('bottom','Bottom plane (\u2212Z)');
+  el.querySelectorAll('input').forEach(cb=>cb.onchange=()=>{visible[cb.dataset.v]=cb.checked;applyVisibility();});
+}
+function renderStruct(dec){const tot=NCELL,sub=dec.substituted,cov=sub/tot*100;
+  const seg=(c,w)=>`<i style="width:${w}%;background:#${c.toString(16).padStart(6,'0')}"></i>`;
+  const parts=GTYPES.filter(g=>dec.counts[g]).map(g=>seg(GCOLOR[g],dec.counts[g]/tot*100)).join('');
+  $('struct').innerHTML=`<div class="bar">${parts||'<i style="width:0"></i>'}</div>
+    <div class="statline"><span>Surface coverage</span><b>${cov.toFixed(1)}%</b></div>
+    <div class="statline"><span>Substituted sites</span><b>${sub} / ${tot}</b></div>
+    <div class="statline"><span>Top vs bottom</span><b>${dec.plane.top} : ${dec.plane.bot}</b></div>
+    <div class="statline"><span>H \u00b7 CH\u2083 \u00b7 ethyl</span><b>${dec.counts.H} \u00b7 ${dec.counts.CH3} \u00b7 ${dec.counts.CH2CH3}</b></div>`;
+}
+
+$('open').onclick=()=>$('picker').click();
+$('picker').onchange=e=>{const f=e.target.files[0];if(f)pickFile(f);};
+$('rowidx').onchange=render;
+$('prev').onclick=()=>stepRow(-1);
+$('next').onclick=()=>stepRow(1);
+$('sortProp').onchange=()=>{fillModels();renderExtremes();resetToFile();};
+$('sortModel').onchange=()=>{renderExtremes();resetToFile();};
+$('bHigh').onclick=()=>{computeOrder(currentSortId(),'desc');setBrowseActive('bHigh');goRow(order[0]);};
+$('bLow').onclick =()=>{computeOrder(currentSortId(),'asc'); setBrowseActive('bLow'); goRow(order[0]);};
+$('bFile').onclick=()=>{clearOrder();setBrowseActive('bFile');render();};
+$('sample').onclick=()=>loadText(SAMPLE_CSV);
+
+/* small files load fully (fast + gives labels); big files stream-index */
+const BIG=30*1024*1024;
+function pickFile(f){ if(f.size>BIG){loadFile(f);} else {const rd=new FileReader();rd.onload=()=>loadText(rd.result);rd.readAsText(f);} }
+
+const stage=$('stage'),drop=$('drop');
+['dragenter','dragover'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('on');}));
+['dragleave','drop'].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==='drop'){const f=e.dataTransfer.files[0];if(f)pickFile(f);}drop.classList.remove('on');}));
+
+/* embedded demo — includes Model-1 (pred_*) and Model-2 (m2_*) columns so the
+   comparison view is visible without loading a file */
+const SAMPLE_CSV=(()=>{
+  const SUF=PROPS.map(p=>p.suf);
+  const lead=['sample_id'].concat(SUF.map(s=>'pred_'+s)).concat(SUF.map(s=>'m2_'+s));
+  const head=lead.concat([...Array(NCELL)].map((_,i)=>'atom_'+(i+1))).join(',');
+  const mk=fn=>{const g=[];for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++)g.push(fn(r,c));return g;};
+  // [name, m1(5 vals), m2(5 vals), grid]
+  const grids=[
+    ['sample_stripes',     [3.1,180,42,0.21,0.25],[3.4,176,44,0.20,0.26], mk(r=>r%4===0?4:r%4===2?5:1)],
+    ['sample_ethyl_patch', [4.4,260,55,0.18,0.22],[4.1,272,52,0.19,0.23], mk((r,c)=>(r>=12&&r<=28&&c>=90&&c<=150)?((r+c)%2?6:7):((r===0||r===ROWS-1||c===0||c===COLS-1)?2:1))]];
+  return [head].concat(grids.map(([nm,m1,m2,grid])=>[nm,...m1,...m2].concat(grid).join(','))).join('\n');
+})();
+
+addEventListener('load',()=>{if(typeof THREE==='undefined')$('dims').innerHTML='\u26a0 Three.js failed to load \u2014 this viewer needs internet on first open.';});
+</script>
