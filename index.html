@@ -19,9 +19,13 @@
   #stage{position:relative;background:radial-gradient(120% 120% at 50% 0%,#121a25 0%,var(--bg) 60%)}
   #gl{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
   #gl:active{cursor:grabbing}
-  #hint{position:absolute;left:14px;bottom:12px;font:11px/1.5 var(--mono);color:var(--faint);pointer-events:none}
+  #hint{position:absolute;left:14px;bottom:12px;font:14px/1.6 var(--mono);color:var(--faint);pointer-events:none}
   #hint b{color:var(--dim);font-weight:600}
-  #dims{position:absolute;left:14px;top:12px;font:11px/1.4 var(--mono);color:var(--dim);max-width:60%}
+  #dims{position:absolute;right:14px;top:12px;font:11px/1.4 var(--mono);color:var(--dim);max-width:50%;text-align:right}
+  #ringtog{position:absolute;right:14px;bottom:12px;appearance:none;border:1px solid var(--line);
+    background:var(--bg2);color:var(--dim);font:600 12px var(--mono);padding:6px 11px;border-radius:7px;cursor:pointer}
+  #ringtog:hover{border-color:var(--accent)}
+  #ringtog.active{border-color:var(--accent);background:#16202e;color:var(--accent)}
   #dims b{color:var(--accent)}
   #drop{position:absolute;inset:0;display:none;place-items:center;background:rgba(10,13,18,.82);border:2px dashed var(--accent);z-index:20}
   #drop.on{display:grid}
@@ -32,8 +36,7 @@
   #side{background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
   @media (max-width:780px){#side{border-left:0;border-top:1px solid var(--line);max-height:46vh}}
   .scroll{overflow:auto;padding:18px 18px 26px}
-  .brand{padding:16px 18px 12px;border-bottom:1px solid var(--line)}
-  .brand h1{margin:0;font:600 14px/1.2 var(--sans)}
+  .brand{padding:16px 18px 12px;border-bottom:1px solid var(--line)}  .brand h1{margin:0;font:600 14px/1.2 var(--sans)}
   .brand p{margin:3px 0 0;font:11px/1.4 var(--mono);color:var(--faint)}
   .eyebrow{font:600 10px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--faint);margin:22px 0 9px}
   .eyebrow:first-child{margin-top:4px}
@@ -107,7 +110,8 @@
   <div id="stage">
     <canvas id="gl"></canvas>
     <div id="dims">no sheet loaded</div>
-    <div id="hint"><b>drag</b> rotate · <b>scroll</b> zoom · <b>right-drag</b> pan · <b>R</b> reset</div>
+    <div id="hint"><b>drag</b> rotate · <b>scroll</b> zoom · <b>right-drag</b> pan · <b>R</b> reset · <b>F</b> mode</div>
+    <button id="ringtog" class="active" title="switch rotation mode (F)">⟳ axis rings</button>
     <div id="drop"><span>Drop a CSV to load</span></div>
     <div id="prog"><i></i></div>
   </div>
@@ -125,22 +129,7 @@
       </div>
       <input type="file" id="picker" accept=".csv,text/csv" hidden>
 
-      <div class="rowctl" style="margin-top:12px">
-        <div class="grow">
-          <label class="f">Row index</label>
-          <input type="number" id="rowidx" value="0" min="0" step="1" disabled>
-        </div>
-        <button class="btn mini" id="prev" disabled>‹</button>
-        <button class="btn mini" id="next" disabled>›</button>
-      </div>
-      <div class="rlabel" id="rlabel">—</div>
-      <div class="rankline" id="rankline"></div>
-
-
-      <div class="eyebrow">Predictions</div>
-      <div id="preds"><div class="empty">Load a sheet to read its property values.</div></div>
-
-      <div class="eyebrow" id="sorthead" style="display:none">Sort &amp; extremes</div>
+      <div class="eyebrow" id="sorthead" style="display:none">Sort &amp; browse</div>
       <div id="sortcard" style="display:none">
         <div class="grid2b">
           <select id="sortProp"></select>
@@ -154,6 +143,21 @@
           <button class="btn mini" id="bFile" title="back to file order">File</button>
         </div>
       </div>
+
+      <div class="eyebrow">Row</div>
+      <div class="rowctl">
+        <div class="grow">
+          <label class="f">Row index</label>
+          <input type="number" id="rowidx" value="0" min="0" step="1" disabled>
+        </div>
+        <button class="btn mini" id="prev" disabled>‹</button>
+        <button class="btn mini" id="next" disabled>›</button>
+      </div>
+      <div class="rlabel" id="rlabel">—</div>
+      <div class="rankline" id="rankline"></div>
+
+      <div class="eyebrow">Predictions</div>
+      <div id="preds"><div class="empty">Load a sheet to read its property values.</div></div>
 
       <div class="eyebrow">Functional groups</div>
       <div id="legend"></div>
@@ -488,30 +492,174 @@ function applyVisibility(){
     im.instanceMatrix.needsUpdate=true;
   }
 }
-/* camera + manual orbit */
+/* camera + free (quaternion) orbit — tumbles over any axis, no pole clamp */
 const target=new THREE.Vector3(0,0,0);
-let radius=200,theta=-Math.PI/2,phi=0.78;
-function frameCamera(){radius=Math.max(XMAX,YMAX)*0.72+10;theta=-Math.PI/2;phi=0.66;target.set(0,0,0);updateCam();}
-function updateCam(){phi=Math.max(0.05,Math.min(Math.PI-0.05,phi));
-  camera.position.set(target.x+radius*Math.sin(phi)*Math.cos(theta),target.y+radius*Math.cos(phi),target.z+radius*Math.sin(phi)*Math.sin(theta));
-  camera.up.set(0,0,1);camera.lookAt(target);}
+let radius=200;
+const camQuat=new THREE.Quaternion();
+const BASE_DIR=new THREE.Vector3(0,0,1);   // camera sits along local +Z from target
+const BASE_UP =new THREE.Vector3(0,1,0);
+function frameCamera(){
+  target.set(0,0,0);
+  // side view: look along +Y (edge-on), X to the right, +Z up -> top plane up, bottom down
+  camQuat.setFromAxisAngle(new THREE.Vector3(1,0,0), Math.PI/2);
+  const aspect=camera.aspect||((canvas.clientWidth||800)/(canvas.clientHeight||600));
+  const vHalf=camera.fov*Math.PI/360;                 // (fov/2) in radians
+  const hHalf=Math.atan(Math.tan(vHalf)*aspect);       // horizontal half-fov
+  radius=(XMAX/2)/Math.tan(hHalf)*1.12+8;              // frame the full X extent
+  updateCam();
+}
+function updateCam(){
+  camera.position.copy(BASE_DIR).applyQuaternion(camQuat).multiplyScalar(radius).add(target);
+  camera.up.copy(BASE_UP).applyQuaternion(camQuat);
+  camera.lookAt(target);
+}
+function rotateView(yaw,pitch){                 // rotate in camera-local frame -> free tumble
+  const qy=new THREE.Quaternion().setFromAxisAngle(BASE_UP,yaw);
+  const qx=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),pitch);
+  camQuat.multiply(qy).multiply(qx).normalize();
+}
+/* snap-to-axis (Unity-style gizmo click) with smooth slerp */
+let animating=false; const qTarget=new THREE.Quaternion();
+function viewAxis(dir){
+  const z=dir.clone().normalize();
+  const up=Math.abs(z.y)>0.9?new THREE.Vector3(0,0,1):new THREE.Vector3(0,1,0);
+  const x=new THREE.Vector3().crossVectors(up,z).normalize();
+  const y=new THREE.Vector3().crossVectors(z,x);
+  return new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x,y,z));
+}
+function snapTo(dir){ qTarget.copy(viewAxis(dir)); animating=true; }
+
+const GS=132, GM=14;                            // gizmo size + margin (shared with loop)
 let drag=null,lx=0,ly=0;
-canvas.addEventListener('pointerdown',e=>{drag=(e.button===2||e.shiftKey)?'pan':'rot';lx=e.clientX;ly=e.clientY;canvas.setPointerCapture(e.pointerId);});
-canvas.addEventListener('pointermove',e=>{if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;
-  if(drag==='rot'){theta-=dx*0.006;phi-=dy*0.006;}
-  else{const k=radius*0.0016;const right=new THREE.Vector3().crossVectors(new THREE.Vector3().subVectors(camera.position,target),camera.up).normalize();
-    target.addScaledVector(right,-dx*k);target.addScaledVector(camera.up.clone(),dy*k);}updateCam();});
-canvas.addEventListener('pointerup',()=>drag=null);
+let freeRot=false, gring=null;                  // freeRot: free tumble on canvas; gring: corner-ring drag
+const ray=new THREE.Raycaster();
+const gizPick=[]; const ringVis={};             // pickable gizmo parts; visible ring meshes by axis key
+function gizmoSync(){ gizmoCam.position.copy(BASE_DIR).applyQuaternion(camQuat).multiplyScalar(5);
+  gizmoCam.up.copy(BASE_UP).applyQuaternion(camQuat); gizmoCam.lookAt(0,0,0); gizmoCam.updateMatrixWorld(); }
+function gizmoInside(e){const r=canvas.getBoundingClientRect();
+  const px=e.clientX-r.left-GM, py=e.clientY-r.top-GM;
+  return (px>=0&&py>=0&&px<=GS&&py<=GS)?{px,py}:null; }
+function gizmoHit(e){                            // -> {kind:'tip',dir}|{kind:'ring',axis,key} | null
+  const in_=gizmoInside(e); if(!in_) return null;
+  gizmoSync();
+  ray.setFromCamera({x:(in_.px/GS)*2-1, y:-((in_.py/GS)*2-1)}, gizmoCam);
+  const h=ray.intersectObjects(gizPick,false);
+  return h.length?h[0].object.userData:null;
+}
+function gizmoCenter(){const r=canvas.getBoundingClientRect();
+  return {cx:r.left+GM+GS/2, cy:r.top+GM+GS/2}; }
+function setRingHi(key){ for(const k in ringVis) ringVis[k].material.opacity=(k===key)?1.0:0.4; }
+canvas.addEventListener('pointerdown',e=>{
+  const g=gizmoHit(e);
+  if(g){ if(g.kind==='tip') snapTo(g.dir);          // click a tip -> snap to that view
+         else { startGRing(g); animating=false; }    // grab a ring -> dial rotate
+         drag=null; canvas.setPointerCapture(e.pointerId); return; }
+  if(gizmoInside(e)) return;                          // empty gizmo area: ignore
+  if(e.button===2||e.shiftKey) drag='pan';            // pan works in both modes
+  else if(freeRot) drag='rot';                        // free tumble only in free mode
+  else return;                                        // rings mode: canvas drag doesn't rotate
+  animating=false; lx=e.clientX; ly=e.clientY; canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener('pointermove',e=>{
+  if(gring){ gringMove(e); return; }
+  if(!drag)return;const dx=e.clientX-lx,dy=e.clientY-ly;lx=e.clientX;ly=e.clientY;
+  if(drag==='rot'){rotateView(-dx*0.006,-dy*0.006);}
+  else{const k=radius*0.0016;
+    const right=new THREE.Vector3(1,0,0).applyQuaternion(camQuat);
+    const up=new THREE.Vector3(0,1,0).applyQuaternion(camQuat);
+    target.addScaledVector(right,-dx*k);target.addScaledVector(up,dy*k);}
+  updateCam();});
+canvas.addEventListener('pointermove',e=>{if(drag||gring)return;             // hover highlight + cursor
+  const g=gizmoHit(e);
+  if(g&&g.kind==='ring'){ setRingHi(g.key); canvas.style.cursor='grab'; }
+  else { setRingHi(null); canvas.style.cursor=g?'pointer':''; }});
+canvas.addEventListener('pointerup',()=>{drag=null; if(gring){gring=null;setRingHi(null);}});
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('wheel',e=>{e.preventDefault();radius*=(1+Math.sign(e.deltaY)*0.08);radius=Math.max(6,Math.min(4000,radius));updateCam();},{passive:false});
 let pinch=0;
 canvas.addEventListener('touchmove',e=>{if(e.touches.length===2){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);
   if(pinch)radius*=pinch/d;pinch=d;radius=Math.max(6,Math.min(4000,radius));updateCam();e.preventDefault();}},{passive:false});
 canvas.addEventListener('touchend',()=>pinch=0);
-addEventListener('keydown',e=>{if(e.key==='r'||e.key==='R')frameCamera();});
+addEventListener('keydown',e=>{if(e.key==='r'||e.key==='R')frameCamera();
+  if(e.key==='f'||e.key==='F')setMode(!freeRot);});
+
+/* corner axis gizmo — clickable axis tips (X red · Y green · Z blue) */
+const gizmoScene=new THREE.Scene();
+const gizmoCam=new THREE.OrthographicCamera(-2.2,2.2,2.2,-2.2,0.1,100);
+gizmoScene.add(new THREE.AxesHelper(1.15));
+gizmoScene.add(new THREE.AmbientLight(0xffffff,1));
+function axisLabel(t,color,p){const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d');
+  x.fillStyle=color;x.font='bold 46px sans-serif';x.textAlign='center';x.textBaseline='middle';x.fillText(t,32,34);
+  const s=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c),transparent:true,depthTest:false}));
+  s.position.copy(p);s.scale.set(0.7,0.7,0.7);gizmoScene.add(s);}
+const AX=[
+  {dir:new THREE.Vector3( 1,0,0),col:0xff5555,lab:'X',lc:'#ff8a8a'},
+  {dir:new THREE.Vector3(-1,0,0),col:0x7e3a3a},
+  {dir:new THREE.Vector3(0, 1,0),col:0x55dd77,lab:'Y',lc:'#86e6a0'},
+  {dir:new THREE.Vector3(0,-1,0),col:0x376e49},
+  {dir:new THREE.Vector3(0,0, 1),col:0x5599ff,lab:'Z',lc:'#8ab8ff'},
+  {dir:new THREE.Vector3(0,0,-1),col:0x3a567e},
+];
+for(const a of AX){
+  const pos=a.dir.clone().multiplyScalar(1.35);
+  const mk=new THREE.Mesh(new THREE.SphereGeometry(a.lab?0.15:0.1,14,10),new THREE.MeshBasicMaterial({color:a.col,depthTest:false}));
+  mk.renderOrder=1000; mk.position.copy(pos); gizmoScene.add(mk);
+  const hit=new THREE.Mesh(new THREE.SphereGeometry(0.4,8,6),new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthTest:false}));
+  hit.position.copy(pos); hit.userData={kind:'tip',dir:a.dir}; gizmoScene.add(hit); gizPick.push(hit);
+  if(a.lab) axisLabel(a.lab,a.lc,a.dir.clone().multiplyScalar(1.78));
+}
+/* rotation rings on the corner gizmo (drag to rotate about that axis) */
+const GRINGS=[{k:'x',axis:new THREE.Vector3(1,0,0),col:0xff5566},
+              {k:'y',axis:new THREE.Vector3(0,1,0),col:0x4fd17a},
+              {k:'z',axis:new THREE.Vector3(0,0,1),col:0x4f95ff}];
+for(const r of GRINGS){
+  const q=new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,0,1),r.axis);
+  const vis=new THREE.Mesh(new THREE.TorusGeometry(0.82,0.035,12,80),
+    new THREE.MeshBasicMaterial({color:r.col,transparent:true,opacity:0.4,depthTest:false,depthWrite:false}));
+  vis.quaternion.copy(q); vis.renderOrder=999; gizmoScene.add(vis); ringVis[r.k]=vis;
+  const hit=new THREE.Mesh(new THREE.TorusGeometry(0.82,0.14,8,48),
+    new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthTest:false,depthWrite:false}));
+  hit.quaternion.copy(q); hit.userData={kind:'ring',axis:r.axis,key:r.k}; gizmoScene.add(hit); gizPick.push(hit);
+}
+
+/* corner-ring rotation: a stable 2D dial around the (fixed-on-screen) gizmo centre,
+   so the camera never feeds back into the angle measurement -> no jiggle */
+function startGRing(ud){
+  const a=ud.axis, viewDir=new THREE.Vector3().subVectors(target,camera.position).normalize();
+  const c=gizmoCenter();
+  gring={axis:a, key:ud.key, face:(a.dot(viewDir)<0?1:-1), prev:null, cx:c.cx, cy:c.cy};
+  setRingHi(ud.key);
+}
+function gringMove(e){
+  const phi=Math.atan2(e.clientY-gring.cy, e.clientX-gring.cx);
+  if(gring.prev!==null){ let d=phi-gring.prev;
+    if(d>Math.PI)d-=2*Math.PI; else if(d<-Math.PI)d+=2*Math.PI;
+    camQuat.premultiply(new THREE.Quaternion().setFromAxisAngle(gring.axis, gring.face*d)).normalize(); updateCam(); }
+  gring.prev=phi;
+}
+function setMode(free){ freeRot=free; if(free){gring=null;setRingHi(null);}
+  const b=$('ringtog'); if(b){b.classList.toggle('active',!free); b.textContent=free?'\u21bb free rotate':'\u21bb axis rings';} }
+
 function resize(){const w=canvas.clientWidth,h=canvas.clientHeight;
   if(canvas.width!==w*devicePixelRatio||canvas.height!==h*devicePixelRatio){renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();}}
-(function loop(){resize();renderer.render(scene,camera);requestAnimationFrame(loop);})();
+(function loop(){resize();
+  if(animating){ camQuat.slerp(qTarget,0.25); updateCam();
+    if(camQuat.angleTo(qTarget)<0.005){camQuat.copy(qTarget); updateCam(); animating=false;} }
+  const cw=canvas.clientWidth, ch=canvas.clientHeight;
+  renderer.setScissorTest(false);
+  renderer.setViewport(0,0,cw,ch);
+  renderer.setClearColor(0x0a0d12,1); renderer.clear();
+  renderer.render(scene,camera);
+  // gizmo HUD, top-left
+  renderer.setScissorTest(true);
+  renderer.setViewport(GM, ch-GS-GM, GS, GS); renderer.setScissor(GM, ch-GS-GM, GS, GS);
+  renderer.setClearColor(0x0a0d12,1); renderer.clear();
+  gizmoCam.position.copy(BASE_DIR).applyQuaternion(camQuat).multiplyScalar(5);
+  gizmoCam.up.copy(BASE_UP).applyQuaternion(camQuat); gizmoCam.lookAt(0,0,0);
+  renderer.render(gizmoScene,gizmoCam);
+  renderer.setScissorTest(false);
+  requestAnimationFrame(loop);
+})();
 
 /* ===========================================================================
    UI
@@ -616,6 +764,7 @@ function renderStruct(dec){const tot=NCELL,sub=dec.substituted,cov=sub/tot*100;
 }
 
 $('open').onclick=()=>$('picker').click();
+$('ringtog').onclick=()=>setMode(!freeRot);
 $('picker').onchange=e=>{const f=e.target.files[0];if(f)pickFile(f);};
 $('rowidx').onchange=render;
 $('prev').onclick=()=>stepRow(-1);
